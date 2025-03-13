@@ -1,0 +1,113 @@
+const SEC = 1000;
+const MIN = 60 * SEC;
+
+const request = require('request-promise');
+const fs = require('fs');
+
+const creds = '';
+const port = 33335;
+
+const numOfRuns = 100;
+let numOfFails = 0;
+let totalTime = 0;
+let completedRequests = 0;
+
+let errorCodes = {};
+let errorTypes = {};
+let luminatiErrors = {};
+
+const rules = {
+
+ 
+}
+
+
+
+
+
+
+
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+const _include_headers = function(body, response, resolveWithFullResponse) {
+  return { 'headers': response.headers, 'data': body };
+};
+
+function sendRequest(i) {
+  const super_proxy = `http://${creds}@brd.superproxy.io:${port}`;
+  const options = {
+    method: 'GET',
+  //encoding: null,
+    url: 'https://allegro.pl/oferta/13533124417',
+    proxy: super_proxy,
+    transform: _include_headers,
+    headers: {
+      'x-unblock-rules': JSON.stringify(rules),
+      'x-unblock-trace': '*',
+
+    
+
+    },
+    resolveWithFullResponse: true,
+   //body: '{ "query" : "query NotForSaleShopperPlatformFullRenderQuery($zpid: ID) { property(zpid: $zpid) { url: hdpUrl zpid } }", "variables" : {"zpid" : 33858496}, "operationName" : "NotForSaleShopperPlatformFullRenderQuery" }'
+};
+
+  const startTime = Date.now();
+  request(options)
+    .then(function(data) {
+      const endTime = Date.now();
+      const elapsedTime = (endTime - startTime) / SEC; // Time in seconds
+      totalTime += elapsedTime;
+      completedRequests++;
+      fs.writeFile(`results/ub_test${i}`, data.data, function(err) {
+        if (err) console.error(err);
+      });
+    })
+    .catch(function(err) {
+      numOfFails++;
+      const statusCode = err.response ? err.response.statusCode : 'Unknown';
+      const errorType = err.name || 'UnknownError';
+      if (!errorCodes[statusCode]) {
+        errorCodes[statusCode] = 0;
+      }
+      errorCodes[statusCode]++;
+      if (!errorTypes[errorType]) {
+        errorTypes[errorType] = 0;
+      }
+      errorTypes[errorType]++;
+      // Parse x-luminati-error from headers
+      const luminatiError = err.response && err.response.headers ? err.response.headers['x-luminati-error'] : null;
+      if (luminatiError) {
+        if (!luminatiErrors[luminatiError]) {
+          luminatiErrors[luminatiError] = 0;
+        }
+        luminatiErrors[luminatiError]++;
+      }
+      console.error(`${i} displeases Gal, displeasure meter rose to: ${numOfFails}`);
+      fs.writeFile(`results/ub_ERROR_${i}`, JSON.stringify({
+        name: err.name,
+        statusCode: statusCode,
+        message: err.message,
+        options: err.options,
+        response: err.response
+      }), function(err) {
+        if (err) console.error(err);
+      });
+    });
+}
+for (let i = 0; i < numOfRuns; i++) {
+  sendRequest(i);
+}
+process.on('exit', function() {
+  const successRate = (1 - (numOfFails / numOfRuns)) * 100;
+  const averageTime = totalTime / completedRequests;
+  console.log(" ")
+  console.log(`Success rate: ${successRate}%, ${numOfRuns - numOfFails}/${numOfRuns}`);
+  console.log(`Average request time: ${averageTime.toFixed(2)} seconds`);
+  console.log(" ")
+  console.log('Errors & Frequency:');
+  console.log(" ")
+  for (const [errorMsg, count] of Object.entries(luminatiErrors)) {
+    console.log(`${errorMsg} x${count}`);
+  }
+});

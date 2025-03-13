@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="BrightProxy - Advanced proxy testing and unlocker testing tool" />
+    <meta name="theme-color" content="#111827" />
+    <title>BrightProxy - Advanced Proxy Testing Tool</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjODg2MGZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgY2xhc3M9Imx1Y2lkZSBsdWNpZGUtY29kZSI+PHBhdGggZD0ibTE2IDggOCA4LTggOCIvPjxwYXRoIGQ9Im04IDI0LTgtOCA4LTgiLz48L3N2Zz4=" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="msapplication-TileColor" content="#111827">
+    <meta property="og:title" content="BrightProxy - Advanced Proxy Testing Tool">
+    <meta property="og:description" content="Test proxies and unlockers with our advanced testing tool">
+    <meta property="og:type" content="website">
+    <style>
+      /* Initial loading state */
+      body {
+        background-color: #111827;
+        margin: 0;
+        padding: 0;
+      }
+      .initial-loader {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: #111827;
+        z-index: 9999;
+      }
+      .loader-content {
+        text-align: center;
+      }
+      .loader-spinner {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        border: 3px solid rgba(136, 96, 255, 0.2);
+        border-top-color: rgba(136, 96, 255, 1);
+        animation: spin 1s linear infinite;
+      }
+      .loader-text {
+        margin-top: 20px;
+        color: #e5e7eb;
+        font-family: 'Inter', sans-serif;
+        font-size: 16px;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <!-- Initial loading state -->
+      <div class="initial-loader">
+        <div class="loader-content">
+          <div class="loader-spinner"></div>
+          <div class="loader-text">Loading BrightProxy...</div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

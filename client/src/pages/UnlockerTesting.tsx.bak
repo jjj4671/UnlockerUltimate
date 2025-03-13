@@ -1,0 +1,712 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
+import { Header } from "@/components/Header";
+import { MainContent } from "@/components/MainContent";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { 
+  Plus, Trash, Globe, PlayCircle, Save, AlertTriangle, Download, PlusCircle, X, Eye, FileText
+} from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { StatCards } from "@/components/StatCards";
+import { Stats } from "@/types";
+
+// Types for unlocker testing
+interface HeaderField {
+  id: string;
+  name: string;
+  value: string;
+}
+
+interface CookieField {
+  id: string;
+  name: string;
+  value: string;
+}
+
+interface Rule {
+  id: string;
+  type: string;
+  pattern: string;
+  action: string;
+}
+
+interface TestResult {
+  url: string;
+  success: boolean;
+  statusCode?: number;
+  responseTime: string;
+  contentType?: string;
+  content?: string;
+  error?: string;
+}
+
+export default function UnlockerTesting() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
+  const [url, setUrl] = useState("");
+  const [instances, setInstances] = useState(1);
+  const [headers, setHeaders] = useState<HeaderField[]>([]);
+  const [cookies, setCookies] = useState<CookieField[]>([]);
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [enableHeaders, setEnableHeaders] = useState(false);
+  const [enableCookies, setEnableCookies] = useState(false);
+  const [enableRules, setEnableRules] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'raw' | 'rendered'>('raw');
+  
+  // Statistics tracking
+  const [stats, setStats] = useState<Stats>({
+    totalRequests: 0,
+    failedRequests: 0,
+    avgResponseTime: 0
+  });
+
+  // Reset statistics
+  const resetStats = () => {
+    setStats({
+      totalRequests: 0,
+      failedRequests: 0,
+      avgResponseTime: 0
+    });
+  };
+  
+  // Generate a unique ID for new fields
+  const generateId = () => `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  // Header management
+  const addHeader = () => {
+    setHeaders([...headers, { id: generateId(), name: "", value: "" }]);
+  };
+
+  const updateHeader = (id: string, field: 'name' | 'value', value: string) => {
+    setHeaders(headers.map(header => 
+      header.id === id ? { ...header, [field]: value } : header
+    ));
+  };
+
+  const removeHeader = (id: string) => {
+    setHeaders(headers.filter(header => header.id !== id));
+  };
+
+  // Cookie management
+  const addCookie = () => {
+    setCookies([...cookies, { id: generateId(), name: "", value: "" }]);
+  };
+
+  const updateCookie = (id: string, field: 'name' | 'value', value: string) => {
+    setCookies(cookies.map(cookie => 
+      cookie.id === id ? { ...cookie, [field]: value } : cookie
+    ));
+  };
+
+  const removeCookie = (id: string) => {
+    setCookies(cookies.filter(cookie => cookie.id !== id));
+  };
+
+  // Rule management
+  const addRule = () => {
+    setRules([...rules, { id: generateId(), type: "replace", pattern: "", action: "" }]);
+  };
+
+  const updateRule = (id: string, field: keyof Rule, value: string) => {
+    setRules(rules.map(rule => 
+      rule.id === id ? { ...rule, [field]: value } : rule
+    ));
+  };
+
+  const removeRule = (id: string) => {
+    setRules(rules.filter(rule => rule.id !== id));
+  };
+
+  // Run the unlocker test
+  const runTest = async () => {
+    if (!url) {
+      toast({
+        title: "URL Required",
+        description: "Please enter a URL to test",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    setTestResult(null);
+
+    try {
+      // Prepare the request payload
+      const payload = {
+        url,
+        instances,
+        headers: enableHeaders ? headers.filter(h => h.name && h.value) : [],
+        cookies: enableCookies ? cookies.filter(c => c.name && c.value) : [],
+        rules: enableRules ? rules.filter(r => r.pattern && r.action) : []
+      };
+
+      // Send the request to the server
+      const result = await apiRequest<TestResult>('/api/unlocker/test', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      
+      // Handle the response
+      setTestResult(result);
+      
+      // Invalidate the results query to ensure fresh data
+      queryClient.invalidateQueries({ queryKey: ['/api/results'] });
+      
+      // Update statistics
+      const responseTime = parseFloat(result.responseTime) || 0;
+      setStats(prev => {
+        const newTotal = prev.totalRequests + 1;
+        const newFailed = prev.failedRequests + (result.success ? 0 : 1);
+        const newAvgTime = ((prev.avgResponseTime * prev.totalRequests) + responseTime) / newTotal;
+        return {
+          totalRequests: newTotal,
+          failedRequests: newFailed,
+          avgResponseTime: newAvgTime
+        };
+      });
+      
+      toast({
+        title: "Test Completed",
+        description: "The unlocker test has completed successfully.",
+        variant: "success"
+      });
+    } catch (error) {
+      toast({
+        title: "Test Failed",
+        description: error instanceof Error ? error.message : "An unknown error occurred.",
+        variant: "destructive"
+      });
+      
+      const failedResult = {
+        url,
+        success: false,
+        responseTime: "0",
+        error: error instanceof Error ? error.message : "An unknown error occurred."
+      };
+      
+      setTestResult(failedResult);
+      
+      // Update statistics for failed request
+      setStats(prev => ({
+        totalRequests: prev.totalRequests + 1,
+        failedRequests: prev.failedRequests + 1,
+        avgResponseTime: prev.avgResponseTime
+      }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // View the test result
+  const viewResult = () => {
+    if (!testResult) return;
+    setViewMode('raw');
+    setViewDialogOpen(true);
+  };
+
+  // Toggle between raw and rendered view
+  const toggleViewMode = () => {
+    setViewMode(viewMode === 'raw' ? 'rendered' : 'raw');
+  };
+
+  // Download the test result
+  const downloadResult = () => {
+    if (!testResult || !testResult.content) return;
+    
+    const blob = new Blob([testResult.content], { type: testResult.contentType || 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `unlocker-test-${new Date().toISOString().split('T')[0]}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="flex flex-col min-h-screen bg-gray-900">
+      <Header />
+      <MainContent title="Unlocker Testing">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div>
+            <Card className="bg-gray-800 border-gray-700">
+              <CardHeader>
+                <h3 className="text-lg font-medium text-white flex items-center">
+                  <Globe className="mr-2 h-5 w-5" />
+                  Target Configuration
+                </h3>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="url" className="text-gray-300">URL</Label>
+                  <Input
+                    id="url"
+                    placeholder="https://example.com"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    className="bg-gray-700 border-gray-600 text-white"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="instances" className="text-gray-300">Number of Instances</Label>
+                  <Input
+                    id="instances"
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={instances}
+                    onChange={(e) => setInstances(parseInt(e.target.value) || 1)}
+                    className="bg-gray-700 border-gray-600 text-white"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+            
+            <div className="mt-6">
+              <Tabs defaultValue="headers" className="w-full">
+                <TabsList className="bg-gray-800 border-gray-700 grid grid-cols-3">
+                  <TabsTrigger value="headers" className="data-[state=active]:bg-gray-700">Headers</TabsTrigger>
+                  <TabsTrigger value="cookies" className="data-[state=active]:bg-gray-700">Cookies</TabsTrigger>
+                  <TabsTrigger value="rules" className="data-[state=active]:bg-gray-700">Rules</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="headers">
+                  <Card className="bg-gray-800 border-gray-700">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-md font-medium text-white">Custom Headers</h3>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-gray-300">Enable</span>
+                          <Switch
+                            checked={enableHeaders}
+                            onCheckedChange={setEnableHeaders}
+                          />
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {enableHeaders && (
+                        <>
+                          {headers.length === 0 ? (
+                            <div className="text-center py-4 text-gray-400">
+                              <p>No headers added. Click "Add Header" to create one.</p>
+                            </div>
+                          ) : (
+                            headers.map((header) => (
+                              <div key={header.id} className="flex space-x-2">
+                                <div className="flex-1">
+                                  <Input
+                                    placeholder="Header Name"
+                                    value={header.name}
+                                    onChange={(e) => updateHeader(header.id, 'name', e.target.value)}
+                                    className="bg-gray-700 border-gray-600 text-white"
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <Input
+                                    placeholder="Value"
+                                    value={header.value}
+                                    onChange={(e) => updateHeader(header.id, 'value', e.target.value)}
+                                    className="bg-gray-700 border-gray-600 text-white"
+                                  />
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => removeHeader(header.id)}
+                                  className="h-10 w-10 text-red-400 hover:text-red-300"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))
+                          )}
+                          
+                          <Button
+                            onClick={addHeader}
+                            className="w-full mt-2 bg-gray-700 hover:bg-gray-600"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Header
+                          </Button>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                
+                <TabsContent value="cookies">
+                  <Card className="bg-gray-800 border-gray-700">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-md font-medium text-white">Custom Cookies</h3>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-gray-300">Enable</span>
+                          <Switch
+                            checked={enableCookies}
+                            onCheckedChange={setEnableCookies}
+                          />
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {enableCookies && (
+                        <>
+                          {cookies.length === 0 ? (
+                            <div className="text-center py-4 text-gray-400">
+                              <p>No cookies added. Click "Add Cookie" to create one.</p>
+                            </div>
+                          ) : (
+                            cookies.map((cookie) => (
+                              <div key={cookie.id} className="flex space-x-2">
+                                <div className="flex-1">
+                                  <Input
+                                    placeholder="Cookie Name"
+                                    value={cookie.name}
+                                    onChange={(e) => updateCookie(cookie.id, 'name', e.target.value)}
+                                    className="bg-gray-700 border-gray-600 text-white"
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <Input
+                                    placeholder="Value"
+                                    value={cookie.value}
+                                    onChange={(e) => updateCookie(cookie.id, 'value', e.target.value)}
+                                    className="bg-gray-700 border-gray-600 text-white"
+                                  />
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => removeCookie(cookie.id)}
+                                  className="h-10 w-10 text-red-400 hover:text-red-300"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))
+                          )}
+                          
+                          <Button
+                            onClick={addCookie}
+                            className="w-full mt-2 bg-gray-700 hover:bg-gray-600"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Cookie
+                          </Button>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+                
+                <TabsContent value="rules">
+                  <Card className="bg-gray-800 border-gray-700">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-md font-medium text-white">Content Transformation Rules</h3>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-gray-300">Enable</span>
+                          <Switch
+                            checked={enableRules}
+                            onCheckedChange={setEnableRules}
+                          />
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {enableRules && (
+                        <>
+                          {rules.length === 0 ? (
+                            <div className="text-center py-4 text-gray-400">
+                              <p>No rules added. Click "Add Rule" to create one.</p>
+                            </div>
+                          ) : (
+                            rules.map((rule) => (
+                              <div key={rule.id} className="space-y-2 p-3 border border-gray-700 rounded-md">
+                                <div className="flex justify-between">
+                                  <Label className="text-gray-300">Rule Type</Label>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => removeRule(rule.id)}
+                                    className="h-6 w-6 text-red-400 hover:text-red-300"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                                <select
+                                  value={rule.type}
+                                  onChange={(e) => updateRule(rule.id, 'type', e.target.value)}
+                                  className="w-full rounded-md bg-gray-700 border-gray-600 text-white"
+                                >
+                                  <option value="replace">Replace</option>
+                                  <option value="regex">Regex Replace</option>
+                                  <option value="append">Append</option>
+                                  <option value="prepend">Prepend</option>
+                                </select>
+                                
+                                <Label className="text-gray-300">Pattern/Selector</Label>
+                                <Input
+                                  placeholder={rule.type === 'regex' ? "/pattern/g" : "Pattern or CSS Selector"}
+                                  value={rule.pattern}
+                                  onChange={(e) => updateRule(rule.id, 'pattern', e.target.value)}
+                                  className="bg-gray-700 border-gray-600 text-white"
+                                />
+                                
+                                <Label className="text-gray-300">Action/Replacement</Label>
+                                <Textarea
+                                  placeholder="Content to insert or replacement"
+                                  value={rule.action}
+                                  onChange={(e) => updateRule(rule.id, 'action', e.target.value)}
+                                  className="bg-gray-700 border-gray-600 text-white"
+                                  rows={3}
+                                />
+                              </div>
+                            ))
+                          )}
+                          
+                          <Button
+                            onClick={addRule}
+                            className="w-full mt-2 bg-gray-700 hover:bg-gray-600"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Rule
+                          </Button>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </div>
+            
+            <div className="mt-6">
+              <Button 
+                onClick={runTest} 
+                disabled={isLoading || !url} 
+                className="w-full"
+                size="lg"
+              >
+                {isLoading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Running Test...
+                  </>
+                ) : (
+                  <>
+                    <PlayCircle className="h-5 w-5 mr-2" />
+                    Run Unlocker Test
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+          
+          <div>
+            <Card className="bg-gray-800 border-gray-700 h-full mt-6">
+              <CardHeader>
+                <h3 className="text-lg font-medium text-white">Test Results</h3>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Tabs defaultValue="results" className="w-full">
+                  <TabsList className="bg-gray-700 border-gray-600 grid grid-cols-2 mb-4 mx-4">
+                    <TabsTrigger value="results" className="data-[state=active]:bg-gray-600">Results</TabsTrigger>
+                    <TabsTrigger value="stats" className="data-[state=active]:bg-gray-600">Statistics</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="stats" className="px-4 pb-4">
+                    <StatCards stats={stats} onReset={resetStats} />
+                  </TabsContent>
+                  
+                  <TabsContent value="results" className="px-4 pb-4">
+                    {!testResult ? (
+                      <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+                        <Globe className="h-16 w-16 mb-4 opacity-50" />
+                        <p>Run a test to see results here.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="bg-gray-700 p-4 rounded-md">
+                          <div className="flex justify-between items-center mb-4">
+                            <h4 className="text-white font-medium">Request Details</h4>
+                            <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              testResult.success 
+                                ? "bg-green-900 text-green-300" 
+                                : "bg-red-900 text-red-300"
+                            }`}>
+                              {testResult.success ? "Success" : "Failed"}
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">URL:</span>
+                              <span className="text-white font-mono truncate max-w-[300px]">{testResult.url}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">Response Time:</span>
+                              <span className="text-white">{testResult.responseTime}s</span>
+                            </div>
+                            {testResult.statusCode && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-400">Status Code:</span>
+                                <span className="text-white">{testResult.statusCode}</span>
+                              </div>
+                            )}
+                            {testResult.contentType && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-400">Content Type:</span>
+                                <span className="text-white">{testResult.contentType}</span>
+                              </div>
+                            )}
+                            {testResult.error && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-400">Error:</span>
+                                <span className="text-red-400">{testResult.error}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {testResult.success && testResult.content && (
+                          <>
+                            <div className="bg-gray-700 p-4 rounded-md">
+                              <h4 className="text-white font-medium mb-2">
+                                Preview
+                                {testResult.url && (
+                                  <span className="text-sm font-normal ml-2 text-gray-400">
+                                    {new URL(testResult.url).hostname}
+                                  </span>
+                                )}
+                              </h4>
+                              <div className="bg-gray-800 p-3 rounded border border-gray-600 font-mono text-xs text-gray-300 max-h-60 overflow-auto">
+                                <pre>{testResult.content.substring(0, 500)}{testResult.content.length > 500 ? '...' : ''}</pre>
+                              </div>
+                            </div>
+                            
+                            <div className="flex space-x-2">
+                              <Button 
+                                onClick={viewResult} 
+                                className="flex-1 bg-gray-700 hover:bg-gray-600"
+                              >
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Content
+                              </Button>
+                              <Button 
+                                onClick={downloadResult} 
+                                className="flex-1 bg-gray-700 hover:bg-gray-600"
+                              >
+                                <Download className="h-4 w-4 mr-2" />
+                                Download
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </MainContent>
+      
+      {/* Content Viewer Dialog */}
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col bg-gray-800 text-white border-gray-700">
+          <DialogHeader className="flex flex-row items-center justify-between">
+            <DialogTitle>
+              Content View
+              {testResult?.url && (
+                <span className="text-sm font-normal ml-2 text-gray-400">
+                  {new URL(testResult.url).hostname}
+                </span>
+              )}
+            </DialogTitle>
+            <div className="flex items-center space-x-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={toggleViewMode}
+                className={viewMode === 'raw' ? 'bg-primary text-white' : ''}
+              >
+                <FileText className="h-4 w-4 mr-1" />
+                Raw
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={toggleViewMode}
+                className={viewMode === 'rendered' ? 'bg-primary text-white' : ''}
+              >
+                <Globe className="h-4 w-4 mr-1" />
+                Rendered
+              </Button>
+            </div>
+          </DialogHeader>
+          
+          <div className="flex-grow overflow-auto">
+            {testResult?.content ? (
+              viewMode === 'raw' ? (
+                <div className="bg-gray-800 p-4 rounded-md font-mono text-sm overflow-auto whitespace-pre-wrap h-full text-gray-300">
+                  {testResult.content}
+                </div>
+              ) : (
+                <div className="bg-gray-800 rounded-md border border-gray-700 p-0 h-full">
+                  <iframe 
+                    srcDoc={testResult.content}
+                    className="w-full h-full border-0"
+                    title="Rendered content"
+                  />
+                </div>
+              )
+            ) : (
+              <div className="bg-gray-800 p-8 rounded-md text-center flex flex-col items-center justify-center h-full">
+                <div className="text-amber-500 mb-4">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-200 mb-2">No content available</h3>
+                <p className="text-gray-400 text-sm max-w-md">
+                  The test completed but did not return any content data. 
+                  This may occur if the request failed or the response was empty.
+                </p>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter className="mt-4">
+            <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+            <Button variant="outline" onClick={downloadResult}>
+              <Download className="h-4 w-4 mr-2" />
+              Download
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
